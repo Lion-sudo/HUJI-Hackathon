@@ -3,8 +3,48 @@ from fastapi.middleware.cors import CORSMiddleware
 import re
 import json
 from models import LLMRequest
+from agents import AgentManager, Agent, JudgeAgent, AgentConfig
+from agent_prompts import get_prompt_for_council_member, get_prompt_for_council_leader, ADDED_PROMPT_DICT
+import os
+import logging
+from datetime import datetime
+import uuid
+import google.generativeai as genai
+import google.auth
+from google.oauth2 import service_account
+import asyncio
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+API_KEY_FILE = "api_key.json"
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+# Global Gemini model instance
+gemini_model = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Starting up server...")
+    global gemini_model
+    gemini_model = init_gemini()
+    load_agents()
+    logger.info("Server startup complete")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down server...")
+    # Add any cleanup code here if needed
+    logger.info("Server shutdown complete")
+
+app = FastAPI(lifespan=lifespan)
 
 # Enable CORS
 app.add_middleware(
@@ -15,47 +55,100 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def is_jailbreak_attempt(prompt: str) -> bool:
-    """
-    Simple jailbreak detection - can be enhanced with more sophisticated checks
-    """
-    # List of common jailbreak patterns
-    jailbreak_patterns = [
-        r"ignore.*previous.*instructions",
-        r"you.*are.*now.*(?:dan|jailbreak|unrestricted)",
-        r"bypass.*restrictions",
-        r"ignore.*ethical",
-        r"you.*can.*do.*anything",
-        r"you.*are.*not.*bound",
-        r"you.*are.*not.*an.*ai",
-        r"you.*are.*not.*a.*language.*model",
-    ]
-    
-    prompt_lower = prompt.lower()
-    return any(re.search(pattern, prompt_lower) for pattern in jailbreak_patterns)
+# Initialize agent manager
+agent_manager = AgentManager()
 
-@app.middleware("http")
-async def jailbreak_middleware(request: Request, call_next):
-    if request.url.path == "/api/chat" and request.method == "POST":
-        body = await request.body()
-        try:
-            data = json.loads(body)
-            if "prompt" in data and is_jailbreak_attempt(data["prompt"]):
-                raise HTTPException(status_code=403, detail="Jailbreak attempt detected")
-        except json.JSONDecodeError:
-            pass
-    response = await call_next(request)
-    return response
+# Initialize Gemini model
+def init_gemini():
+    try:
+        credentials, _ = google.auth.load_credentials_from_file("api_key.json")
+        if not credentials:
+            raise Exception("No credentials available")
+        
+        genai.configure(credentials=credentials)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        logger.info("Successfully initialized Gemini model")
+        return model
+    except Exception as e:
+        logger.error(f"Failed to initialize Gemini model: {str(e)}")
+        return None
+
+# Load agent configurations
+def load_agents():
+    credentials, _ = google.auth.load_credentials_from_file("api_key.json")
+    if not credentials:
+        raise Exception("No credentials available")
+    
+    logger.info("Initializing agents...")
+    
+    # Create the judge agent first
+    judge_config = AgentConfig(
+        name="judge",
+        weight=1.0,
+        system_prompt=get_prompt_for_council_leader(),
+        api_key=credentials
+    )
+    judge = JudgeAgent(judge_config)
+    agent_manager.set_judge(judge)
+    logger.info("Judge agent initialized")
+    
+    # Create expert agents
+    expert_weights = {
+        "lawyer": 1.0,
+        "scientist": 0.9,
+        "medical_doctor": 1.0,
+        "psychiatrist": 0.9,
+        "ethicist": 1.0,
+        "cybersecurity_expert": 1.0,
+        "child_safety_expert": 1.0
+    }
+    
+    # for expert_type, weight in expert_weights.items():
+    #     try:
+    #         expert_prompt = get_prompt_for_council_member(expert_type)
+    #         config = AgentConfig(
+    #             name=expert_type,
+    #             weight=weight,
+    #             system_prompt=expert_prompt,
+    #             api_key=credentials
+    #         )
+    #         agent_manager.add_agent(Agent(config))
+    #         logger.info(f"Added {expert_type} agent with weight {weight}")
+    #     except ValueError as e:
+    #         logger.error(f"Failed to create {expert_type} agent: {str(e)}")
+    
+    logger.info(f"Total agents initialized: {len(agent_manager.agents) + 1} (including judge)")
 
 @app.post("/api/chat")
 async def chat(request: LLMRequest):
-    # TODO: Implement actual LLM call here
-    # This is a stub response
-    return {
-        "response": "This is a stub response. LLM integration pending.",
-        "status": "success"
-    }
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] Processing chat request")
+    
+    if not gemini_model:
+        logger.error(f"[{request_id}] Gemini model not initialized")
+        raise HTTPException(status_code=500, detail="AI model not initialized")
+    
+    try:
+        # Start a new chat session
+        chat = gemini_model.start_chat()
+        
+        # Send the message and get response
+        logger.info(f"[{request_id}] Sending prompt to Gemini: {request.prompt[:100]}...")
+        response = await asyncio.to_thread(
+            chat.send_message,
+            request.prompt
+        )
+        
+        logger.info(f"[{request_id}] Received response from Gemini")
+        return {
+            "response": response.text,
+            "status": "success"
+        }
+    except Exception as e:
+        logger.error(f"[{request_id}] Error in Gemini API call: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("Starting server on 0.0.0.0:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000) 
