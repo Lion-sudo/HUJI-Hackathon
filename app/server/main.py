@@ -16,6 +16,8 @@ import asyncio
 from contextlib import asynccontextmanager
 
 API_KEY_FILE = "api_key.json"
+# Configure the risk threshold (0.0 to 1.0)
+RISK_THRESHOLD = 0.7  # Reject prompts with risk score >= 0.7
 
 # Configure logging
 logging.basicConfig(
@@ -133,16 +135,23 @@ async def chat(request: LLMRequest):
         logger.info(f"[{request_id}] Having council evaluate prompt")
         council_decision = await agent_manager.analyze_prompt(request.prompt)
         
-        # Check if the prompt was permitted
-        if "Not Permitted" in council_decision["verdict"]:
-            logger.warning(f"[{request_id}] Council rejected prompt: {council_decision['verdict']}")
+        # Extract risk score from the verdict
+        try:
+            risk_score = float(council_decision["verdict"].split("Risk Score:")[1].split("\n")[0].strip())
+        except (ValueError, IndexError):
+            logger.error(f"[{request_id}] Failed to parse risk score from verdict: {council_decision['verdict']}")
+            risk_score = 1.0  # Default to highest risk if parsing fails
+        
+        # Check if the risk score exceeds the threshold
+        if risk_score >= RISK_THRESHOLD:
+            logger.warning(f"[{request_id}] Council rejected prompt with risk score {risk_score}")
             raise HTTPException(
                 status_code=403,
-                detail="Request rejected by security council"
+                detail=f"Request rejected by security council (risk score: {risk_score:.2f})"
             )
         
         # If permitted, proceed with the chat
-        logger.info(f"[{request_id}] Council approved prompt, proceeding with chat")
+        logger.info(f"[{request_id}] Council approved prompt (risk score: {risk_score:.2f}), proceeding with chat")
         chat = gemini_model.start_chat()
         
         # Send the message and get response
@@ -156,7 +165,7 @@ async def chat(request: LLMRequest):
         return {
             "response": response.text,
             "status": "success",
-            # "council_verdict": council_decision["verdict"]
+            "risk_score": risk_score
         }
     except HTTPException:
         raise

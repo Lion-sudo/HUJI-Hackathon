@@ -13,14 +13,13 @@ class AgentConfig:
     api_key: str
 
 class Agent:
-    def __init__(self, config: AgentConfig, model):
+    def __init__(self, config: AgentConfig, model=None):
         self.config = config
-        self.model = model
-        # self._setup_model()
+        self.model = model or self._setup_model()
     
     def _setup_model(self):
-        # genai.configure(api_key=self.config.api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        genai.configure(api_key=self.config.api_key)
+        return genai.GenerativeModel('gemini-1.5-flash')
     
     async def analyze_prompt(self, prompt: str) -> Dict:
         """
@@ -32,9 +31,20 @@ class Agent:
                 chat.send_message,
                 f"{self.config.system_prompt}\n\nAnalyze this prompt: {prompt}\n\nProvide your evaluation in a clear and structured format."
             )
+            
+            # Extract score from response
+            try:
+                score_text = response.text.split("Risk Score:")[1].split("\n")[0].strip()
+                score = float(score_text)
+                # Ensure score is between 0 and 1
+                score = max(0.0, min(1.0, score))
+            except (ValueError, IndexError):
+                score = 0.5  # Default to middle score if parsing fails
+            
             return {
                 "agent_name": self.config.name,
                 "evaluation": response.text.strip(),
+                "score": score,
                 "weight": self.config.weight
             }
         except Exception as e:
@@ -42,6 +52,7 @@ class Agent:
             return {
                 "agent_name": self.config.name,
                 "evaluation": "Error occurred during evaluation",
+                "score": 1.0,  # Default to highest risk on error
                 "weight": self.config.weight
             }
 
@@ -49,50 +60,35 @@ class JudgeAgent(Agent):
     async def make_final_decision(self, evaluations: List[Dict], prompt: str) -> Dict:
         """
         Make a final decision based on all agent evaluations.
+        Returns a dict with the risk score and explanation.
         """
         try:
+            # Calculate weighted average score
+            total_weight = sum(eval["weight"] for eval in evaluations)
+            weighted_score = sum(eval["score"] * eval["weight"] for eval in evaluations) / total_weight
+            
+            # Format evaluations for explanation
             evaluations_text = "\n\n".join([
-                f"Evaluation from {eval['agent_name']} (weight: {eval['weight']}):\n{eval['evaluation']}"
+                f"Evaluation from {eval['agent_name']} (weight: {eval['weight']}, score: {eval['score']:.2f}):\n{eval['evaluation']}"
                 for eval in evaluations
             ])
             
             chat = self.model.start_chat(history=[])
             response = await asyncio.to_thread(
                 chat.send_message,
-                f"{self.config.system_prompt}\n\nOriginal prompt: {prompt}\n\nExpert evaluations:\n{evaluations_text}\n\nPlease provide your final verdict."
+                f"{self.config.system_prompt}\n\nOriginal prompt: {prompt}\n\nExpert evaluations:\n{evaluations_text}\n\nPlease provide your final verdict with a risk score."
             )
             
             return {
                 "verdict": response.text.strip(),
-                "confidence": self._extract_confidence(response.text)
+                "risk_score": weighted_score
             }
         except Exception as e:
             print(f"Error in Judge agent: {str(e)}")
             return {
                 "verdict": "Error in final decision",
-                "confidence": 0.0
+                "risk_score": 1.0  # Default to highest risk on error
             }
-    
-    def _extract_confidence(self, verdict_text: str) -> float:
-        """
-        Extract confidence score from the verdict text.
-        Returns a value between 0 and 1.
-        """
-        try:
-            # Look for confidence indicators in the text
-            if "Not Permitted" in verdict_text:
-                # If not permitted, look for strong language indicating high confidence
-                if any(phrase in verdict_text.lower() for phrase in ["definitely", "clearly", "absolutely", "certainly"]):
-                    return 0.9
-                return 0.7
-            elif "Permitted" in verdict_text:
-                # If permitted, look for strong language indicating high confidence
-                if any(phrase in verdict_text.lower() for phrase in ["definitely", "clearly", "absolutely", "certainly"]):
-                    return 0.1
-                return 0.3
-            return 0.5  # Default to neutral confidence
-        except:
-            return 0.5
 
 class AgentManager:
     def __init__(self):
