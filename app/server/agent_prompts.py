@@ -20,8 +20,6 @@ PROMPT_FOR_JUDGE = (
     "3. **Key Concerns**: Which experts raised concerns and what those concerns were"
 )
 
-
-
 BASIC_PROMPT_FOR_MEMBER = (
     "You are a domain expert in a council that reviews prompts submitted to a large language model (LLM). "
     "Your task is to evaluate whether the prompt introduces risks **specific to your area of expertise**.\n\n"
@@ -38,7 +36,6 @@ BASIC_PROMPT_FOR_MEMBER = (
     "- A clear and grounded explanation for your conclusion\n"
     "- If no concerns exist in your domain, clearly state that the prompt is safe from your perspective"
 )
-
 
 ADDED_PROMPT_DICT = {
     "lawyer": (
@@ -70,7 +67,7 @@ def get_prompt_for_council_member(key: str) -> str:
         return BASIC_PROMPT_FOR_MEMBER + "\n" + ADDED_PROMPT_DICT[key]
     else:
         raise ValueError("Prompt title does not exist.")
-    
+
 
 def get_prompt_for_council_leader():
     return PROMPT_FOR_JUDGE
