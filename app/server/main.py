@@ -145,7 +145,14 @@ async def chat(request: LLMRequest):
         logger.info(f"[{request_id}] Council approved prompt, proceeding with chat")
         chat = gemini_model.start_chat()
         
-        # Send the message and get response
+        # Convert chat history to Gemini format and send previous messages
+        for message in request.chat_history:
+            await asyncio.to_thread(
+                chat.send_message,
+                message.content
+            )
+        
+        # Send the current message and get response
         logger.info(f"[{request_id}] Sending prompt to Gemini: {request.prompt[:100]}...")
         response = await asyncio.to_thread(
             chat.send_message,

@@ -1,10 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --discord-dark: #36393f;
+  --discord-darker: #2f3136;
+  --discord-darkest: #202225;
+  --discord-light: #dcddde;
+  --discord-accent: #5865f2;
+  --discord-accent-hover: #4752c4;
+  --discord-danger: #ed4245;
+  --discord-success: #3ba55c;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--discord-dark);
+  color: var(--discord-light);
+  min-height: 100vh;
 }
 
 code {
