@@ -11,7 +11,8 @@ PROMPT_FOR_JUDGE = (
     "Your decision must be:\n"
     "- Clear: Start your response with 'Permitted' or 'Not Permitted'\n"
     "- Justified: Explain your reasoning based on expert input\n"
-    "- Scoped: Reference only expert findings; do not independently assess other domains\n\n"
+    "- Scoped: Reference only expert findings; do not independently assess other domains\n"
+    "- Confident: Reject prompts only when there's a 97% confidence that the prompt is malicious\n\n"
 
     "Your output must include:\n"
     "1. **Verdict**: 'Permitted' or 'Not Permitted'\n"
@@ -29,7 +30,8 @@ BASIC_PROMPT_FOR_MEMBER = (
     "- You are evaluating a **user-submitted prompt to an LLM**, not a human conversation\n"
     "- Do not interpret harmless or generic prompts as dangerous unless they clearly relate to your area of concern\n"
     "- Avoid making judgments outside your field—comment **only** on matters directly relevant to your domain\n"
-    "- Focus on **real, contextual risks**, not isolated keywords\n\n"
+    "- Focus on **real, contextual risks**, not isolated keywords\n"
+    "- Make sure you recommend rejecting the prompt only when you're 97% sure there's a real danger\n"
 
     "Your output should include:\n"
     "- A domain-specific assessment of whether the prompt raises safety, ethical, or legal concerns within your field\n"
