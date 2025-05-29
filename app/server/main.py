@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up server...")
     global gemini_model
     gemini_model = init_gemini()
-    load_agents()
+    # load_agents()
     logger.info("Server startup complete")
     
     yield
