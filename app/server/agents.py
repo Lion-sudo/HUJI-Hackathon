@@ -13,13 +13,13 @@ class AgentConfig:
     api_key: str
 
 class Agent:
-    def __init__(self, config: AgentConfig):
+    def __init__(self, config: AgentConfig, model):
         self.config = config
-        self.model = None
-        self._setup_model()
+        self.model = model
+        # self._setup_model()
     
     def _setup_model(self):
-        genai.configure(api_key=self.config.api_key)
+        # genai.configure(api_key=self.config.api_key)
         self.model = genai.GenerativeModel('gemini-1.5-flash')
     
     async def analyze_prompt(self, prompt: str) -> Dict:

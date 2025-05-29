@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up server...")
     global gemini_model
     gemini_model = init_gemini()
-    # load_agents()
+    load_agents()  # Uncomment this to load the council of agents
     logger.info("Server startup complete")
     
     yield
@@ -88,7 +88,7 @@ def load_agents():
         system_prompt=get_prompt_for_council_leader(),
         api_key=credentials
     )
-    judge = JudgeAgent(judge_config)
+    judge = JudgeAgent(judge_config, gemini_model)
     agent_manager.set_judge(judge)
     logger.info("Judge agent initialized")
     
@@ -103,19 +103,19 @@ def load_agents():
         "child_safety_expert": 1.0
     }
     
-    # for expert_type, weight in expert_weights.items():
-    #     try:
-    #         expert_prompt = get_prompt_for_council_member(expert_type)
-    #         config = AgentConfig(
-    #             name=expert_type,
-    #             weight=weight,
-    #             system_prompt=expert_prompt,
-    #             api_key=credentials
-    #         )
-    #         agent_manager.add_agent(Agent(config))
-    #         logger.info(f"Added {expert_type} agent with weight {weight}")
-    #     except ValueError as e:
-    #         logger.error(f"Failed to create {expert_type} agent: {str(e)}")
+    for expert_type, weight in expert_weights.items():
+        try:
+            expert_prompt = get_prompt_for_council_member(expert_type)
+            config = AgentConfig(
+                name=expert_type,
+                weight=weight,
+                system_prompt=expert_prompt,
+                api_key=credentials
+            )
+            agent_manager.add_agent(Agent(config, gemini_model))
+            logger.info(f"Added {expert_type} agent with weight {weight}")
+        except ValueError as e:
+            logger.error(f"Failed to create {expert_type} agent: {str(e)}")
     
     logger.info(f"Total agents initialized: {len(agent_manager.agents) + 1} (including judge)")
 
@@ -129,7 +129,20 @@ async def chat(request: LLMRequest):
         raise HTTPException(status_code=500, detail="AI model not initialized")
     
     try:
-        # Start a new chat session
+        # First, have the council evaluate the prompt
+        logger.info(f"[{request_id}] Having council evaluate prompt")
+        council_decision = await agent_manager.analyze_prompt(request.prompt)
+        
+        # Check if the prompt was permitted
+        if "Not Permitted" in council_decision["verdict"]:
+            logger.warning(f"[{request_id}] Council rejected prompt: {council_decision['verdict']}")
+            raise HTTPException(
+                status_code=403,
+                detail="Request rejected by security council"
+            )
+        
+        # If permitted, proceed with the chat
+        logger.info(f"[{request_id}] Council approved prompt, proceeding with chat")
         chat = gemini_model.start_chat()
         
         # Send the message and get response
@@ -142,13 +155,16 @@ async def chat(request: LLMRequest):
         logger.info(f"[{request_id}] Received response from Gemini")
         return {
             "response": response.text,
-            "status": "success"
+            "status": "success",
+            # "council_verdict": council_decision["verdict"]
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"[{request_id}] Error in Gemini API call: {str(e)}")
+        logger.error(f"[{request_id}] Error in chat processing: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting server on 0.0.0.0:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)
