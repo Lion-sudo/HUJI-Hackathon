@@ -138,7 +138,10 @@ async def chat(request: LLMRequest):
             logger.warning(f"[{request_id}] Council rejected prompt: {council_decision['verdict']}")
             raise HTTPException(
                 status_code=403,
-                detail="Request rejected by security council"
+                detail={
+                    "message": "Request rejected by security council",
+                    "verdict": council_decision["verdict"]
+                }
             )
         
         # If permitted, proceed with the chat

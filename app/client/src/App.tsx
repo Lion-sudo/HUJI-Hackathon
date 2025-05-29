@@ -8,18 +8,26 @@ interface Message {
   content: string;
 }
 
+interface ErrorResponse {
+  detail: {
+    message: string;
+    verdict: string;
+  };
+}
+
 function App() {
   const [prompt, setPrompt] = useState('');
   const [chatHistory, setChatHistory] = useState<Message[]>([]);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<ErrorResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showExplanation, setShowExplanation] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!prompt.trim()) return;
     
     setLoading(true);
-    setError('');
+    setError(null);
     
     // Store the prompt and clear the input immediately
     const currentPrompt = prompt;
@@ -43,9 +51,19 @@ function App() {
       
       if (res.status === 403) {
         const data = await res.json();
-        setError(data.detail || 'Jailbreak attempt detected');
+        setError({
+          detail: {
+            message: 'Request rejected.',
+            verdict: data.detail.verdict
+          }
+        });
       } else if (!res.ok) {
-        setError('Server error');
+        setError({
+          detail: {
+            message: 'Server error',
+            verdict: 'An unexpected error occurred. Please try again.'
+          }
+        });
       } else {
         const data = await res.json();
         // Add assistant response to chat history
@@ -53,7 +71,12 @@ function App() {
         setChatHistory(prev => [...prev, assistantMessage]);
       }
     } catch (err) {
-      setError('Network error');
+      setError({
+        detail: {
+          message: 'Network error',
+          verdict: 'Unable to connect to the server. Please check your internet connection.'
+        }
+      });
     } finally {
       setLoading(false);
     }
@@ -84,9 +107,22 @@ function App() {
             <div className="message error">
               <div className="message-content">
                 <div className="message-header">
-                  <span className="error-badge">Security Alert</span>
+                  <span className="error-badge">
+                    {error.detail.message}
+                    <button 
+                      className="explanation-button"
+                      onClick={() => setShowExplanation(!showExplanation)}
+                      title="Click for explanation"
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                      </svg>
+                    </button>
+                  </span>
                 </div>
-                <div className="message-text">{error}</div>
+                {showExplanation && (
+                  <div className="explanation-text">{error.detail.verdict}</div>
+                )}
               </div>
             </div>
           )}
