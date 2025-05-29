@@ -4,6 +4,9 @@ import asyncio
 from dataclasses import dataclass
 import json
 from agent_prompts import get_prompt_for_council_member, get_prompt_for_council_leader, ADDED_PROMPT_DICT
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class AgentConfig:
@@ -32,19 +35,9 @@ class Agent:
                 f"{self.config.system_prompt}\n\nAnalyze this prompt: {prompt}\n\nProvide your evaluation in a clear and structured format."
             )
             
-            # Extract score from response
-            try:
-                score_text = response.text.split("Risk Score:")[1].split("\n")[0].strip()
-                score = float(score_text)
-                # Ensure score is between 0 and 1
-                score = max(0.0, min(1.0, score))
-            except (ValueError, IndexError):
-                score = 0.5  # Default to middle score if parsing fails
-            
             return {
                 "agent_name": self.config.name,
                 "evaluation": response.text.strip(),
-                "score": score,
                 "weight": self.config.weight
             }
         except Exception as e:
@@ -52,7 +45,6 @@ class Agent:
             return {
                 "agent_name": self.config.name,
                 "evaluation": "Error occurred during evaluation",
-                "score": 1.0,  # Default to highest risk on error
                 "weight": self.config.weight
             }
 
@@ -60,34 +52,28 @@ class JudgeAgent(Agent):
     async def make_final_decision(self, evaluations: List[Dict], prompt: str) -> Dict:
         """
         Make a final decision based on all agent evaluations.
-        Returns a dict with the risk score and explanation.
+        Returns a dict with the verdict and explanation.
         """
         try:
-            # Calculate weighted average score
-            total_weight = sum(eval["weight"] for eval in evaluations)
-            weighted_score = sum(eval["score"] * eval["weight"] for eval in evaluations) / total_weight
-            
             # Format evaluations for explanation
             evaluations_text = "\n\n".join([
-                f"Evaluation from {eval['agent_name']} (weight: {eval['weight']}, score: {eval['score']:.2f}):\n{eval['evaluation']}"
+                f"Evaluation from {eval['agent_name']} (weight: {eval['weight']}):\n{eval['evaluation']}"
                 for eval in evaluations
             ])
             
             chat = self.model.start_chat(history=[])
             response = await asyncio.to_thread(
                 chat.send_message,
-                f"{self.config.system_prompt}\n\nOriginal prompt: {prompt}\n\nExpert evaluations:\n{evaluations_text}\n\nPlease provide your final verdict with a risk score."
+                f"{self.config.system_prompt}\n\nOriginal prompt: {prompt}\n\nExpert evaluations:\n{evaluations_text}\n\nPlease provide your final verdict."
             )
             
             return {
-                "verdict": response.text.strip(),
-                "risk_score": weighted_score
+                "verdict": response.text.strip()
             }
         except Exception as e:
             print(f"Error in Judge agent: {str(e)}")
             return {
-                "verdict": "Error in final decision",
-                "risk_score": 1.0  # Default to highest risk on error
+                "verdict": "Error in final decision"
             }
 
 class AgentManager:
@@ -106,14 +92,18 @@ class AgentManager:
     async def analyze_prompt(self, prompt: str) -> Dict:
         """
         Get evaluations from all agents and have the judge make a final decision.
-        Returns a dict with the final verdict and confidence score.
+        Returns a dict with the final verdict.
         """
         if not self.agents or not self.judge:
-            return {"verdict": "No agents available", "confidence": 0.0}
+            return {"verdict": "No agents available"}
         
         # Get evaluations from all agents
         tasks = [agent.analyze_prompt(prompt) for agent in self.agents]
         evaluations = await asyncio.gather(*tasks)
+        
+        # Log each expert's evaluation
+        for eval in evaluations:
+            logger.info(f"Expert {eval['agent_name']} evaluation:\n{eval['evaluation']}")
         
         # Have the judge make the final decision
         final_decision = await self.judge.make_final_decision(evaluations, prompt)
