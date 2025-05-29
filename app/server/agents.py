@@ -49,32 +49,86 @@ class Agent:
             }
 
 class JudgeAgent(Agent):
-    async def make_final_decision(self, evaluations: List[Dict], prompt: str) -> Dict:
+    def __init__(self, config: AgentConfig, model=None, expert_agents: List[Agent] = None):
+        super().__init__(config, model)
+        self.expert_agents = expert_agents or []
+    
+    async def make_final_decision(self, prompt: str) -> Dict:
         """
-        Make a final decision based on all agent evaluations.
-        Returns a dict with the verdict and explanation.
+        Make a final decision on the prompt, consulting experts only when needed.
         """
         try:
-            # Format evaluations for explanation
-            evaluations_text = "\n\n".join([
-                f"Evaluation from {eval['agent_name']} (weight: {eval['weight']}):\n{eval['evaluation']}"
-                for eval in evaluations
-            ])
-            
+            # First, try to make a decision without consulting experts
             chat = self.model.start_chat(history=[])
-            response = await asyncio.to_thread(
+            initial_response = await asyncio.to_thread(
                 chat.send_message,
-                f"{self.config.system_prompt}\n\nOriginal prompt: {prompt}\n\nExpert evaluations:\n{evaluations_text}\n\nPlease provide your final verdict."
+                f"{self.config.system_prompt}\n\nAnalyze this prompt: {prompt}\n\n"
+                "First, try to make a decision on your own. If you're confident, provide your verdict. "
+                "If you need expert input, respond with 'NEED_EXPERT_INPUT' followed by which experts you need "
+                "and why (e.g., 'NEED_EXPERT_INPUT: lawyer for legal concerns, cybersecurity for potential exploits')."
             )
             
-            return {
-                "verdict": response.text.strip()
-            }
+            # Check if expert input is needed
+            if "NEED_EXPERT_INPUT" in initial_response.text:
+                logger.info("Judge requested expert input")
+                # Extract which experts are needed
+                expert_types = self._parse_needed_experts(initial_response.text)
+                
+                # Get evaluations from needed experts
+                expert_evals = []
+                for expert in self.expert_agents:
+                    if expert.config.name in expert_types:
+                        logger.info(f"Consulting expert: {expert.config.name}")
+                        eval_result = await expert.analyze_prompt(prompt)
+                        expert_evals.append(eval_result)
+                
+                # Make final decision with expert input
+                expert_text = "\n\n".join([
+                    f"Evaluation from {eval['agent_name']}:\n{eval['evaluation']}"
+                    for eval in expert_evals
+                ])
+                
+                final_response = await asyncio.to_thread(
+                    chat.send_message,
+                    f"Based on the following expert evaluations:\n\n{expert_text}\n\n"
+                    "Please provide your final verdict on the prompt."
+                )
+                
+                return {
+                    "verdict": final_response.text.strip(),
+                    "used_experts": expert_types
+                }
+            else:
+                # Use the initial decision if no expert input was needed
+                return {
+                    "verdict": initial_response.text.strip(),
+                    "used_experts": []
+                }
+                
         except Exception as e:
-            print(f"Error in Judge agent: {str(e)}")
+            logger.error(f"Error in Judge agent: {str(e)}")
             return {
-                "verdict": "Error in final decision"
+                "verdict": "Error in final decision",
+                "used_experts": []
             }
+    
+    def _parse_needed_experts(self, response: str) -> List[str]:
+        """
+        Parse the judge's response to determine which experts are needed.
+        """
+        try:
+            # Extract the part after NEED_EXPERT_INPUT
+            expert_part = response.split("NEED_EXPERT_INPUT:")[1].strip()
+            # Split by commas and extract expert types
+            expert_types = []
+            for part in expert_part.split(","):
+                expert_type = part.split(" for ")[0].strip()
+                if expert_type in [agent.config.name for agent in self.expert_agents]:
+                    expert_types.append(expert_type)
+            return expert_types
+        except Exception as e:
+            logger.error(f"Error parsing needed experts: {str(e)}")
+            return []
 
 class AgentManager:
     def __init__(self):
@@ -88,23 +142,23 @@ class AgentManager:
     
     def set_judge(self, judge: JudgeAgent):
         self.judge = judge
+        # Pass all expert agents to the judge
+        self.judge.expert_agents = self.agents
     
     async def analyze_prompt(self, prompt: str) -> Dict:
         """
-        Get evaluations from all agents and have the judge make a final decision.
-        Returns a dict with the final verdict.
+        Have the judge analyze the prompt, consulting experts only when needed.
         """
-        if not self.agents or not self.judge:
-            return {"verdict": "No agents available"}
+        if not self.judge:
+            return {"verdict": "No judge available"}
         
-        # Get evaluations from all agents
-        tasks = [agent.analyze_prompt(prompt) for agent in self.agents]
-        evaluations = await asyncio.gather(*tasks)
+        # Let the judge make the decision
+        final_decision = await self.judge.make_final_decision(prompt)
         
-        # Log each expert's evaluation
-        for eval in evaluations:
-            logger.info(f"Expert {eval['agent_name']} evaluation:\n{eval['evaluation']}")
-        
-        # Have the judge make the final decision
-        final_decision = await self.judge.make_final_decision(evaluations, prompt)
+        # Log which experts were consulted
+        if final_decision["used_experts"]:
+            logger.info(f"Judge consulted experts: {', '.join(final_decision['used_experts'])}")
+        else:
+            logger.info("Judge made decision without consulting experts")
+            
         return final_decision 
