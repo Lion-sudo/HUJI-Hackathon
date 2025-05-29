@@ -1,17 +1,12 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import re
-import json
 from models import LLMRequest
 from agents import AgentManager, Agent, JudgeAgent, AgentConfig
 from agent_prompts import get_prompt_for_council_member, get_prompt_for_council_leader, ADDED_PROMPT_DICT
-import os
 import logging
-from datetime import datetime
 import uuid
 import google.generativeai as genai
 import google.auth
-from google.oauth2 import service_account
 import asyncio
 from contextlib import asynccontextmanager
 
