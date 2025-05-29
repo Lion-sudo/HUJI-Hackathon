@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import json
 from agent_prompts import get_prompt_for_council_member, get_prompt_for_council_leader, ADDED_PROMPT_DICT
 import logging
+import rag
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -14,11 +16,13 @@ class AgentConfig:
     weight: float
     system_prompt: str
     api_key: str
+    rag_path: Optional[str] = None  # Path to PDF file for RAG, None if no RAG needed
 
 class Agent:
     def __init__(self, config: AgentConfig, model=None):
         self.config = config
         self.model = model or self._setup_model()
+        self.rag = rag.PDFRag(config.rag_path) if config.rag_path and os.path.exists(config.rag_path) else None
     
     def _setup_model(self):
         genai.configure(api_key=self.config.api_key)
@@ -30,9 +34,18 @@ class Agent:
         """
         try:
             chat = self.model.start_chat(history=[])
+            
+            # Get RAG context if available
+            rag_context = ""
+            if self.rag:
+                rag_chunks = self.rag.get_rag_context(prompt, num_chunks=5)
+                rag_context = "\n\nRelevant context from knowledge base:\n" + "\n---\n".join(rag_chunks)
+            else:
+                logger.info(f"No RAG context available for agent {self.config.name}")
+            
             response = await asyncio.to_thread(
                 chat.send_message,
-                f"{self.config.system_prompt}\n\nAnalyze this prompt: {prompt}\n\nProvide your evaluation in a clear and structured format."
+                f"{self.config.system_prompt}\n\n{rag_context}\n\nAnalyze this prompt: {prompt}\n\nProvide your evaluation in a clear and structured format."
             )
             
             return {

@@ -89,28 +89,51 @@ def load_agents():
     agent_manager.set_judge(judge)
     logger.info("Judge agent initialized")
     
-    # Create expert agents
-    expert_weights = {
-        "lawyer": 1.0,
-        "scientist": 0.9,
-        "medical_doctor": 1.0,
-        "psychiatrist": 0.9,
-        "ethicist": 1.0,
-        "cybersecurity_expert": 1.0,
-        "child_safety_expert": 1.0
+    # Create expert agents with their configurations
+    expert_configs = {
+        "lawyer": {
+            "weight": 1.0,
+            "rag_path": "assets/basic-laws-book-2016.pdf"  # Only lawyer gets RAG
+        },
+        "scientist": {
+            "weight": 0.9,
+            "rag_path": None
+        },
+        "medical_doctor": {
+            "weight": 1.0,
+            "rag_path": None
+        },
+        "psychiatrist": {
+            "weight": 0.9,
+            "rag_path": "assets/Psych-101-Paul-Kleinman.pdf"
+        },
+        "ethicist": {
+            "weight": 1.0,
+            "rag_path": None
+        },
+        "cybersecurity_expert": {
+            "weight": 1.0,
+            "rag_path": "assets/cybercrime-laws.pdf"  # Example RAG for cybersecurity
+        },
+        "child_safety_expert": {
+            "weight": 1.0,
+            "rag_path": None
+        }
     }
     
-    for expert_type, weight in expert_weights.items():
+    for expert_type, config in expert_configs.items():
         try:
             expert_prompt = get_prompt_for_council_member(expert_type)
-            config = AgentConfig(
+            agent_config = AgentConfig(
                 name=expert_type,
-                weight=weight,
+                weight=config["weight"],
                 system_prompt=expert_prompt,
-                api_key=credentials
+                api_key=credentials,
+                rag_path=config["rag_path"]
             )
-            agent_manager.add_agent(Agent(config, gemini_model))
-            logger.info(f"Added {expert_type} agent with weight {weight}")
+            agent_manager.add_agent(Agent(agent_config, gemini_model))
+            logger.info(f"Added {expert_type} agent with weight {config['weight']}" + 
+                       (f" and RAG from {config['rag_path']}" if config['rag_path'] else ""))
         except ValueError as e:
             logger.error(f"Failed to create {expert_type} agent: {str(e)}")
     
