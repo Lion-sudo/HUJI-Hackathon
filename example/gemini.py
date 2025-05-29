@@ -8,7 +8,7 @@ class Gemini:
     Just call init_model() with your preferred model and use ask()
     """
 
-    _SERVICE_ACCOUNT_FILE_PATH = "path/to/your/service-account-file.json"
+    _API_KEY_FILE = "api_key.json"
 
     # Available models with descriptions
     AVAILABLE_MODELS = {
@@ -51,15 +51,12 @@ class Gemini:
             print(f"🚀 Initializing model: {model_name}...")
 
             # Configure Google AI API
-            if not self._SERVICE_ACCOUNT_FILE_PATH:
-                raise ValueError("Service account file path is not set. Please set Gemini._SERVICE_ACCOUNT_FILE_PATH or ensure it has a default value.")
-
             try:
-                credentials, _ = google.auth.load_credentials_from_file(self._SERVICE_ACCOUNT_FILE_PATH)
+                credentials, _ = google.auth.load_credentials_from_file(self._API_KEY_FILE)
             except FileNotFoundError:
-                raise FileNotFoundError(f"Service account file not found at: {self._SERVICE_ACCOUNT_FILE_PATH}. Please check the path.")
+                raise FileNotFoundError(f"API key file not found at: {self._API_KEY_FILE}. Please ensure the file exists.")
             except Exception as e:
-                raise Exception(f"Failed to load credentials from {self._SERVICE_ACCOUNT_FILE_PATH}: {e}")
+                raise Exception(f"Failed to load credentials from {self._API_KEY_FILE}: {e}")
 
             genai.configure(credentials=credentials)
 
