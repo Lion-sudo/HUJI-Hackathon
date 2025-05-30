@@ -7,6 +7,7 @@ from agent_prompts import get_prompt_for_council_member, get_prompt_for_council_
 import logging
 import rag
 import os
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class Agent:
     
     def _setup_model(self):
         genai.configure(api_key=self.config.api_key)
-        return genai.GenerativeModel('gemini-1.5-flash')
+        return genai.GenerativeModel(config.GEMINI_MODEL_NAME)
     
     async def analyze_prompt(self, prompt: str) -> Dict:
         """
